@@ -1,0 +1,6 @@
+chromadb
+opencv-python
+pandas
+pillow
+streamlit
+numpy
