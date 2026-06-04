@@ -51,7 +51,6 @@ class RawFeatureBundle:
 class FeatureModels:
     hog_pca: PCA
     color_moment_scaler: RobustScaler
-    texture_scaler: RobustScaler
     shape_scaler: RobustScaler
     hog_pca_scaler: RobustScaler
 
@@ -487,7 +486,6 @@ def transform_feature_bundle(bundle: RawFeatureBundle, models: FeatureModels) ->
 
     hog_pca = models.hog_pca.transform(hog_raw)
     scaled_color_moments = models.color_moment_scaler.transform(color_moments)
-    scaled_texture = models.texture_scaler.transform(texture)
     scaled_shape = models.shape_scaler.transform(shape)
     scaled_hog_pca = models.hog_pca_scaler.transform(hog_pca)
 
@@ -495,7 +493,7 @@ def transform_feature_bundle(bundle: RawFeatureBundle, models: FeatureModels) ->
         [
             scaled_color_moments[0],
             color_hist[0],
-            scaled_texture[0],
+            texture[0],
             scaled_shape[0],
             scaled_hog_pca[0],
         ]
@@ -504,7 +502,7 @@ def transform_feature_bundle(bundle: RawFeatureBundle, models: FeatureModels) ->
     return ScoredFeatureSet(
         color_moments=scaled_color_moments[0].astype(np.float32),
         color_hist=color_hist[0].astype(np.float32),
-        texture=scaled_texture[0].astype(np.float32),
+        texture=texture[0].astype(np.float32),
         shape=scaled_shape[0].astype(np.float32),
         hog_pca=scaled_hog_pca[0].astype(np.float32),
         combined=combined,
@@ -565,9 +563,6 @@ def fit_models_from_raw_features(
     color_moment_scaler = RobustScaler()
     color_moment_scaler.fit(color_moments)
 
-    texture_scaler = RobustScaler()
-    texture_scaler.fit(texture)
-
     shape_scaler = RobustScaler()
     shape_scaler.fit(shape)
 
@@ -577,7 +572,6 @@ def fit_models_from_raw_features(
     return FeatureModels(
         hog_pca=hog_pca,
         color_moment_scaler=color_moment_scaler,
-        texture_scaler=texture_scaler,
         shape_scaler=shape_scaler,
         hog_pca_scaler=hog_pca_scaler,
     )
