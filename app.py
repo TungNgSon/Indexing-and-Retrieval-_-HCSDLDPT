@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import chromadb
 import joblib
@@ -24,11 +25,11 @@ from src.config import (
     METADATA_CSV,
     MODELS_DIR,
     SCALERS_PATH,
+    TOP_K,
 )
 from src.feature_pipeline import (
     FeatureModels,
     extract_feature_bundle,
-    score_query_against_dataset,
     transform_feature_bundle,
 )
 
@@ -68,51 +69,59 @@ def _load_chroma_count() -> int:
         return 0
 
 
-def _score_uploaded_image(image_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
-    feature_store = load_feature_store()
+def _score_uploaded_image(image_bgr: np.ndarray) -> list[dict[str, Any]] | None:
     models = load_feature_models()
-    if not feature_store or models is None:
+    if models is None:
         return None
 
     bundle = extract_feature_bundle(image_bgr)
     query_features = transform_feature_bundle(bundle, models)
-    combined_features = feature_store.get("combined_features")
-    if combined_features is None:
+
+    try:
+        client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        collection = client.get_collection(name=COLLECTION_NAME)
+    except Exception:
         return None
-    scores = score_query_against_dataset(query_features, np.asarray(combined_features, dtype=np.float32))
-    return scores, combined_features
+
+    query_vector = query_features.combined.tolist()
+    result = collection.query(
+        query_embeddings=[query_vector],
+        n_results=TOP_K,
+        include=['metadatas', 'distances'],
+    )
+
+    matches: list[dict[str, Any]] = []
+    if not result or not result.get('metadatas'):
+        return []
+
+    for metadata, distance in zip(result['metadatas'][0], result['distances'][0]):
+        score = 1.0 / (1.0 + distance)
+        matches.append({
+            'video_id': metadata.get('video_id', ''),
+            'frame_name': metadata.get('frame_name', metadata.get('filename', '')),
+            'category': metadata.get('category', ''),
+            'filename': metadata.get('filename', ''),
+            'path': metadata.get('path', ''),
+            'score': score,
+            'distance': distance,
+        })
+
+    return matches
 
 
-def _rank_videos_from_frame_scores(scores: np.ndarray, feature_store: dict[str, np.ndarray]) -> pd.DataFrame:
-    video_ids = np.asarray(feature_store.get("video_ids", []), dtype=object)
-    frame_names = np.asarray(feature_store.get("frame_names", feature_store.get("filenames", [])), dtype=object)
-    categories = np.asarray(feature_store.get("categories", []), dtype=object)
-    filenames = np.asarray(feature_store.get("filenames", []), dtype=object)
-    paths = np.asarray(feature_store.get("paths", feature_store.get("source_paths", [])), dtype=object)
+def _rank_videos_from_chroma_matches(matches: list[dict[str, Any]]) -> pd.DataFrame:
+    best_by_video: dict[str, dict[str, Any]] = {}
 
-    best_by_video: dict[str, dict[str, object]] = {}
-    for index, score in enumerate(scores):
-        video_id = str(video_ids[index]) if index < len(video_ids) else f"row_{index}"
-        frame_name = str(frame_names[index]) if index < len(frame_names) else str(video_id)
-        category = str(categories[index]) if index < len(categories) else "unknown"
-        filename = str(filenames[index]) if index < len(filenames) else "unknown"
-        path = str(paths[index]) if index < len(paths) else ""
-
+    for match in matches:
+        video_id = str(match.get('video_id', ''))
         current = best_by_video.get(video_id)
-        if current is None or float(score) > float(current["score"]):
-            best_by_video[video_id] = {
-                "video_id": video_id,
-                "best_frame": frame_name,
-                "category": category,
-                "filename": filename,
-                "path": path,
-                "score": float(score),
-            }
+        if current is None or float(match['score']) > float(current['score']):
+            best_by_video[video_id] = match
 
     if not best_by_video:
-        return pd.DataFrame(columns=["video_id", "best_frame", "category", "filename", "path", "score"])
+        return pd.DataFrame(columns=['video_id', 'best_frame', 'category', 'filename', 'path', 'score', 'distance'])
 
-    ranked = pd.DataFrame(best_by_video.values()).sort_values("score", ascending=False).reset_index(drop=True)
+    ranked = pd.DataFrame(best_by_video.values()).sort_values('score', ascending=False).reset_index(drop=True)
     return ranked
 
 
@@ -155,18 +164,15 @@ def main() -> None:
     with right:
         st.info("Đang tính feature theo notebook pipeline...")
 
-    scored_result = _score_uploaded_image(image_bgr)
-    if scored_result is None:
-        st.error("Thiếu feature store hoặc model. Hãy build lại index trước.")
+    matches = _score_uploaded_image(image_bgr)
+    if matches is None:
+        st.error("Thiếu model hoặc index Chroma. Hãy build lại index trước.")
+        st.stop()
+    if not matches:
+        st.error("Không tìm thấy kết quả từ Chroma.")
         st.stop()
 
-    scores, _ = scored_result
-    store = load_feature_store()
-    if not store:
-        st.error("Feature store không tồn tại.")
-        st.stop()
-
-    ranked_videos = _rank_videos_from_frame_scores(scores, store)
+    ranked_videos = _rank_videos_from_chroma_matches(matches)
     top_results = ranked_videos.head(5)
 
     st.subheader("Top 5 results")
