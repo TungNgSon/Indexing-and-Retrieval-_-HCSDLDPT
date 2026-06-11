@@ -65,20 +65,20 @@ class ScoredFeatureSet:
     combined: np.ndarray
 
 
-def _sample_frames(frame_count: int, fps: float, sample_count: int = DEFAULT_FRAME_SAMPLES) -> list[FrameSample]:
-    if frame_count <= 0:
-        return []
+# def _sample_frames(frame_count: int, fps: float, sample_count: int = DEFAULT_FRAME_SAMPLES) -> list[FrameSample]:
+#     if frame_count <= 0:
+#         return []
 
-    if sample_count <= 1:
-        indices = [max(frame_count // 2, 0)]
-    else:
-        indices = np.linspace(0, frame_count - 1, num=sample_count, dtype=int).tolist()
+#     if sample_count <= 1:
+#         indices = [max(frame_count // 2, 0)]
+#     else:
+#         indices = np.linspace(0, frame_count - 1, num=sample_count, dtype=int).tolist()
 
-    samples: list[FrameSample] = []
-    for frame_index in indices:
-        timestamp_sec = frame_index / fps if fps > 0 else 0.0
-        samples.append(FrameSample(frame_index=frame_index, timestamp_sec=timestamp_sec))
-    return samples
+#     samples: list[FrameSample] = []
+#     for frame_index in indices:
+#         timestamp_sec = frame_index / fps if fps > 0 else 0.0
+#         samples.append(FrameSample(frame_index=frame_index, timestamp_sec=timestamp_sec))
+#     return samples
 
 
 def compute_histogram(frame_bgr: np.ndarray) -> np.ndarray:
@@ -155,19 +155,19 @@ def select_representative_frames(
     return [frames_bgr[index] for index in selected_indices]
 
 
-def normalize_image(image: np.ndarray, target_size: tuple[int, int] = (1280, 720)) -> np.ndarray:
-    height, width = image.shape[:2]
-    target_width, target_height = target_size
-    scale = min(target_width / width, target_height / height)
-    new_width = max(int(width * scale), 1)
-    new_height = max(int(height * scale), 1)
-    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
-    resized = cv2.resize(image, (new_width, new_height), interpolation=interpolation)
-    canvas = np.zeros((target_height, target_width, image.shape[2]), dtype=image.dtype)
-    offset_x = (target_width - new_width) // 2
-    offset_y = (target_height - new_height) // 2
-    canvas[offset_y : offset_y + new_height, offset_x : offset_x + new_width] = resized
-    return canvas
+# def normalize_image(image: np.ndarray, target_size: tuple[int, int] = (1280, 720)) -> np.ndarray:
+#     height, width = image.shape[:2]
+#     target_width, target_height = target_size
+#     scale = min(target_width / width, target_height / height)
+#     new_width = max(int(width * scale), 1)
+#     new_height = max(int(height * scale), 1)
+#     interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+#     resized = cv2.resize(image, (new_width, new_height), interpolation=interpolation)
+#     canvas = np.zeros((target_height, target_width, image.shape[2]), dtype=image.dtype)
+#     offset_x = (target_width - new_width) // 2
+#     offset_y = (target_height - new_height) // 2
+#     canvas[offset_y : offset_y + new_height, offset_x : offset_x + new_width] = resized
+#     return canvas
 
 
 def select_representative_frame(video_path: str | Path, threshold: float = 30.0) -> np.ndarray | None:
