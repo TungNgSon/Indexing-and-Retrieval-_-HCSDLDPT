@@ -325,8 +325,8 @@ def _circular_color_moments(hue_values: np.ndarray) -> tuple[float, float, float
     return float(mean_angle / (2.0 * np.pi) * 180.0), circular_std, circular_skew
 
 
-def extract_color_features_128bin(rgba_image: np.ndarray) -> list[float]:
-    """Return 9 color moments + 192-bin HSV histogram."""
+def extract_color_features_201dim(rgba_image: np.ndarray) -> list[float]:
+    """Return 9 color moments + 192-bin HSV histogram (201D total)."""
     _, pixels = _masked_hsv_pixels(rgba_image)
     if pixels.size == 0:
         return [0.0] * (COLOR_MOMENT_LEN + COLOR_HIST_LEN)
@@ -357,6 +357,8 @@ def extract_color_features_128bin(rgba_image: np.ndarray) -> list[float]:
     hist = cv2.normalize(hist, None, alpha=1, beta=0, norm_type=cv2.NORM_L1).flatten().astype(np.float32)
     return moments + hist.tolist()
 
+# backward compatibility alias
+extract_color_features_128bin = extract_color_features_201dim
 
 def _uniform_lbp_56_histogram(lbp_values: np.ndarray, mask: np.ndarray) -> np.ndarray:
     histogram = np.zeros(TEXTURE_LEN, dtype=np.float32)
@@ -440,7 +442,7 @@ def extract_feature_bundle(image_bgr: np.ndarray) -> RawFeatureBundle:
     normalized_rgba = normalize_image_on_roi(segmented_rgba, target_size=(512, 512))
     if normalized_rgba is None:
         normalized_rgba = segmented_rgba
-    color_features = np.asarray(extract_color_features_128bin(normalized_rgba), dtype=np.float32)
+    color_features = np.asarray(extract_color_features_201dim(normalized_rgba), dtype=np.float32)
     texture_features = np.asarray(extract_ulbp_features(normalized_rgba), dtype=np.float32)
     shape_features = np.asarray(extract_shape_features(normalized_rgba), dtype=np.float32)
     hog_raw_features = extract_hog_features_raw(normalized_rgba)
