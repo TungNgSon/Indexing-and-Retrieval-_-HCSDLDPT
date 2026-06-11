@@ -30,6 +30,7 @@ from src.config import (
 from src.feature_pipeline import (
     FeatureModels,
     extract_feature_bundle,
+    score_query_against_dataset,
     transform_feature_bundle,
 )
 
@@ -70,8 +71,11 @@ def _load_chroma_count() -> int:
 
 
 def _score_uploaded_image(image_bgr: np.ndarray) -> list[dict[str, Any]] | None:
+    """Query Chroma for candidates, then rerank with weighted scoring."""
     models = load_feature_models()
-    if models is None:
+    feature_store = load_feature_store()
+    
+    if models is None or not feature_store:
         return None
 
     bundle = extract_feature_bundle(image_bgr)
@@ -84,32 +88,51 @@ def _score_uploaded_image(image_bgr: np.ndarray) -> list[dict[str, Any]] | None:
         return None
 
     query_vector = query_features.combined.tolist()
-    result = collection.query(
+    chroma_result = collection.query(
         query_embeddings=[query_vector],
-        n_results=TOP_K,
+        n_results=TOP_K * 5,
         include=['metadatas', 'distances'],
     )
 
-    matches: list[dict[str, Any]] = []
-    if not result or not result.get('metadatas'):
+    if not chroma_result or not chroma_result.get('metadatas'):
         return []
 
-    for metadata, distance in zip(result['metadatas'][0], result['distances'][0]):
-        score = 1.0 / (1.0 + distance)
+    combined_features = feature_store.get("combined_features")
+    if combined_features is None:
+        return []
+    
+    combined_features = np.asarray(combined_features, dtype=np.float32)
+
+    candidate_indices = []
+    for metadata in chroma_result['metadatas'][0]:
+        npz_idx = int(metadata.get('npz_row_index', -1))
+        if 0 <= npz_idx < len(combined_features):
+            candidate_indices.append(npz_idx)
+
+    if not candidate_indices:
+        return []
+
+    candidate_features = combined_features[candidate_indices]
+    scores = score_query_against_dataset(query_features, candidate_features)
+
+    matches: list[dict[str, Any]] = []
+    for score, npz_idx, metadata in zip(scores, candidate_indices, chroma_result['metadatas'][0]):
         matches.append({
+            'npz_index': npz_idx,
             'video_id': metadata.get('video_id', ''),
             'frame_name': metadata.get('frame_name', metadata.get('filename', '')),
             'category': metadata.get('category', ''),
             'filename': metadata.get('filename', ''),
             'path': metadata.get('path', ''),
-            'score': score,
-            'distance': distance,
+            'score': float(score),
         })
 
-    return matches
+    ranked = sorted(matches, key=lambda x: x['score'], reverse=True)
+    return ranked[:TOP_K]
 
 
 def _rank_videos_from_chroma_matches(matches: list[dict[str, Any]]) -> pd.DataFrame:
+    """Aggregate frame-level matches to video-level by selecting best score per video."""
     best_by_video: dict[str, dict[str, Any]] = {}
 
     for match in matches:
@@ -119,7 +142,7 @@ def _rank_videos_from_chroma_matches(matches: list[dict[str, Any]]) -> pd.DataFr
             best_by_video[video_id] = match
 
     if not best_by_video:
-        return pd.DataFrame(columns=['video_id', 'best_frame', 'category', 'filename', 'path', 'score', 'distance'])
+        return pd.DataFrame(columns=['video_id', 'frame_name', 'category', 'filename', 'path', 'score'])
 
     ranked = pd.DataFrame(best_by_video.values()).sort_values('score', ascending=False).reset_index(drop=True)
     return ranked

@@ -231,6 +231,7 @@ def build_index() -> None:
             "video_id": record["video_id"],
             "frame_name": record.get("frame_name", record["filename"]),
             "frame_index": int(record.get("frame_index", -1)),
+            "npz_row_index": int(row_idx),
             "category": record["category"],
             "filename": record["filename"],
             "path": record["path"],
@@ -243,7 +244,7 @@ def build_index() -> None:
             "frame_strategy": "notebook_multi_rframe_hsv_201_lbp_56_hu_7_hog_pca_64",
             "vector_mode": index_mode,
         }
-        for record in records
+        for row_idx, record in enumerate(records)
     ]
 
     collection.add(ids=ids, embeddings=combined_matrix.tolist(), documents=documents, metadatas=metadatas)
